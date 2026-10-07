@@ -1,47 +1,40 @@
-import csv
+import tempfile
+import unittest
+from decimal import Decimal
+from pathlib import Path
 
-def processar_vendas(arquivo_entrada, arquivo_saida):
-    faturamento_total = 0.0
-    vendas_por_produto = {}
+from processador import calcular_resumo, processar_vendas
 
-    try:
-        # utf-8-sig remove caracteres invisíveis (BOM) do começo do arquivo
-        with open(arquivo_entrada, mode='r', encoding='utf-8-sig') as file:
-            # Lemos a primeira linha para descobrir se o separador é vírgula ou ponto-e-vírgula
-            primeira_linha = file.readline()
-            separador = ';' if ';' in primeira_linha else ','
-            
-            # Voltamos para o começo do arquivo para ler os dados
-            file.seek(0)
-            
-            leitor = csv.DictReader(file, delimiter=separador, skipinitialspace=True)
-            
-            for linha in leitor:
-                # O skipinitialspace=True já remove os espaços antes das palavras
-                produto = linha['Produto']
-                quantidade = int(linha['Quantidade'])
-                preco = float(linha['Preco'])
-                
-                total_item = quantidade * preco
-                faturamento_total += total_item
-                
-                if produto in vendas_por_produto:
-                    vendas_por_produto[produto] += quantidade
-                else:
-                    vendas_por_produto[produto] = quantidade
 
-        with open(arquivo_saida, mode='w', encoding='utf-8') as file:
-            file.write("=== Relatório de Fechamento de Produção ===\n\n")
-            file.write(f"Faturamento Total: R$ {faturamento_total:.2f}\n\n")
-            file.write("Resumo de Materiais Vendidos:\n")
-            
-            for prod, qtd in vendas_por_produto.items():
-                file.write(f"- {prod}: {qtd} unidades\n")
+class ProcessadorTestCase(unittest.TestCase):
+    def test_calcula_faturamento_e_agrupa_produtos(self):
+        vendas = [
+            {"Produto": "Caixa", "Quantidade": "2", "Preco": "10,50"},
+            {"Produto": "Caixa", "Quantidade": "1", "Preco": "10.50"},
+            {"Produto": "Fita", "Quantidade": "3", "Preco": "2"},
+        ]
+        faturamento, resumo = calcular_resumo(vendas)
+        self.assertEqual(faturamento, Decimal("34.50"))
+        self.assertEqual(resumo, {"Caixa": 3, "Fita": 3})
 
-        print(f"Sucesso! Relatório gerado em: {arquivo_saida}")
+    def test_processa_csv_com_ponto_e_virgula_e_gera_relatorio(self):
+        with tempfile.TemporaryDirectory() as diretorio:
+            pasta = Path(diretorio)
+            entrada = pasta / "pedidos.csv"
+            saida = pasta / "relatorio.txt"
+            entrada.write_text(
+                "Produto;Quantidade;Preco\nParafuso;4;1,25\n",
+                encoding="utf-8",
+            )
+            processar_vendas(entrada, saida)
+            relatorio = saida.read_text(encoding="utf-8")
+            self.assertIn("R$ 5.00", relatorio)
+            self.assertIn("Parafuso: 4 unidades", relatorio)
 
-    except Exception as e:
-        print(f"Ocorreu um erro: {e}")
+    def test_rejeita_coluna_obrigatoria_ausente(self):
+        with self.assertRaises(ValueError):
+            calcular_resumo([{"Produto": "Caixa", "Quantidade": "2"}])
+
 
 if __name__ == "__main__":
-    processar_vendas('pedidos.csv', 'relatorio_final.txt')
+    unittest.main()
